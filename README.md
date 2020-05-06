@@ -20,6 +20,7 @@ Pull requests are welcome. This is really easy Python code, after all.
 
 * Implement continuous updating of the list of services in the GUI without blocking the GUI
 * Handle known services
+* Split into a background service and a GUI part, both in the same add-on
 
 ## References
 
