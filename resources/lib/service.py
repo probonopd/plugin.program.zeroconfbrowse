@@ -1,16 +1,28 @@
+# To see the log:
+#  cat ~/.kodi/temp/kodi.log
+# To see print statements in the log, press Ctrl-Shift-D on Kodi machine
+
+# This is the non-GUI part of this addon; it provides the GUI part with the Zeroconf services found on the network
+
 import sh # http://amoffat.github.io/sh - a single python file - wget https://raw.githubusercontent.com/amoffat/sh/develop/sh.py
 import requests # Not there on LibreELEC by default
 import threading
-import sys
-import xbmcgui
-import xbmcplugin
-import time
+import cPickle as pickle
+import xbmc
 
-do_refreshes = False # While initially populating the list of devices, we don't want to refresh each time. Only after the initial list has quiesced
+global services # FIXME: This means that we will be able to use services from other python files - at least in theory but it doesn't seem to work. Why?
 
-# We want to have an always up-to-date list of available services on the network.
-# We keep this list in the services instance of the Services() class until
-# someone implements a better solution e.g., using dbus
+global pickle_file 
+pickle_file = '/run/zeroconf.services.pickle'
+
+headers = {
+    'User-Agent': 'python-requests/0.0',
+    'Accept': '*/*',
+    'Content-type': 'application/json; charset=UTF-8',
+    'Connection': 'keep-alive',
+}
+
+target_color = "255" # Blue
 
 class ZeroconfService():
 
@@ -34,7 +46,7 @@ class ZeroconfService():
         # ESP8266 devices running the WLED sketch - we can e.g., set the color
         if self.service_type == "_wled._tcp":
             try:
-                set_wled_to_blue = '{"seg":{"col":[[0,0,255,"0"],[],[]]},"transition":7,"v":true}'
+                set_wled_to_blue = '{"seg":{"col":[[0,0,'+target_color+' ,"0"],[],[]]},"transition":7,"v":true}'
                 response = requests.post("http://"+self.address+":"+self.port+"/json/state", headers=headers, data=set_wled_to_blue)
                 print(response)
             except:
@@ -47,7 +59,7 @@ class ZeroconfService():
             try:
                 params = (
                     ('m', '1'), # Amount of warm white
-                    ('h0', '256'), # Color (256=blue)
+                    ('h0', target_color), # Color (256=blue)
                     ('d0', '100'), # Brightness
                     ('n0', '100'), # Color intensity
                 )
@@ -62,77 +74,59 @@ class ZeroconfServices():
         self.services = []
 
     def add(self, service):
+        print("Appending " + str(service))
         self.services.append(service)
         # self.services.sort()
+        self.save()
         service.handle()
                 
     def remove(self, avahi_browse_line):
         print("TODO: To be implemented: Remove the service from the list if certain criteria match")
+        self.save()
         # for service in self.services:
             # print(service.service_type)
             # print(service.hostname_with_domain)
+            
+    def save(self):
+        outfile = open(pickle_file,'wb')
+        pickle.dump(self.services, outfile)
+        outfile.close()
 
+# into which we import this one, too; https://stackoverflow.com/a/60504223
 services = ZeroconfServices()
 
-headers = {
-    'User-Agent': 'python-requests/0.0',
-    'Accept': '*/*',
-    'Content-type': 'application/json; charset=UTF-8',
-    'Connection': 'keep-alive',
-}
-
-set_wled_to_blue = '{"seg":{"col":[[0,0,255,"0"],[],[]]},"transition":7,"v":true}'
-
-avahi_browse = sh.Command("avahi-browse")
-
-print("Keep browsing _wled._tcp services with avahi-browse -rlp and do not return...")
-print("This can be used to detect devices that are switched on after this service has been started")
-
-# Refresh the list on screen
-def list_refresh():
-    for service in services.services:
-        li = xbmcgui.ListItem(str(service))
-        li.setInfo('files', {'plot': service.address})
-        xbmcplugin.addDirectoryItem(handle=addon_handle, url='', listitem=li)
-    xbmcplugin.endOfDirectory(addon_handle)
-    # xbmc.executebuiltin("Container.Refresh") # Without this a cached directory listing is shown; with this the spinner is shown all the time... why?
-    # FIXME: Ideally we want to refresh the screen only if a new service has been found or an existing one is gone
-    
-# TODO: Turn this into a Kodi background service that other plugins can query, too
 def long_running_function():
+    avahi_browse = sh.Command("avahi-browse")
+    print("Keep browsing Zeroconf services with avahi-browse -rlp and do not return...")
+    print("This will detect devices that are switched on after this service has been started")
     for line in avahi_browse("-arlp", _iter=True):
         print(line)
         if line.startswith("="):
             s = ZeroconfService(line)
             services.add(s)
-            
         if line.startswith("-"):
             services.remove(line)
-        if(do_refreshes == True):
-            list_refresh()
 
-addon_handle = int(sys.argv[1])
-xbmcplugin.setContent(addon_handle, 'files') # There is no "generic" one?
+if __name__ == "__main__":
 
-t1 = threading.Thread(target=long_running_function)
-t1.daemon = True # Needed for Ctrl-C to work properly
-t1.start()
+    t1 = threading.Thread(target=long_running_function)
+    t1 .daemon = True # Needed for Ctrl-C to work properly
+    t1.start()
 
-time.sleep(5) # We need to wait here for some time to get the initial list
-list_refresh() # TODO: Make this auto-updating without blocking the screen with the spinner all the time as the above code would do
-# xbmc.executebuiltin("Container.Refresh") # Without this a cached directory listing is shown
-do_refreshes = True
+    # We need to periodically check if Kodi is exiting.
+    # The addon is responsible for terminating when Kodi wants to exit.
+    # https://kodi.wiki/view/Service_add-ons
+    monitor = xbmc.Monitor()    
+    while not monitor.abortRequested():
+        # Sleep/wait for abort for 10 seconds
+        if monitor.waitForAbort(10):
+            # Abort was requested while waiting. We should exit
+            break
 
-
-# TODO:
-# Turn this into an add-on that contains both a service (no GUI) and a plugin (GUI)
-# https://kodi.wiki/view/Service_add-ons
-# so that the service runs all the time and can handle Zeroconf devices also while
-# the GUI is not open. This may also allow the GUI to significantly speed up because
-# the scanning for devices does not need to be done once the user opens the GUI but
-# already has been done in the background at that time. The challenge is to make the 
-# data exhange between the two separate Python scripts happen, see
-# https://forum.kodi.tv/showthread.php?tid=198862&pid=1743342#pid1743342
+    # Call a scenario when Kodi is shutting down
+    target_color = 128 # TODO: Do a more useful scenario
+    for service in services:
+        service.handle()
 
 # TODO:
 # Add some actions, e.g.,
