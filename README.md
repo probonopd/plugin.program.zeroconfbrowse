@@ -8,7 +8,7 @@ While you could install the plugin through the KODI graphical user interface, it
 
 ```
 cd /storage/.kodi/addons/
-wget -c https://github.com/probonopd/plugin.program.zeroconfbrowse/archive/master.zip -O plugin.program.zeroconfbrowse.zip
+wget -c https://github.com/probonopd/sftp://root@alexelec.local/storage/.kodi/addons/plugin.program.zeroconfbrowse/archive/master.zip -O plugin.program.zeroconfbrowse.zip
 unzip plugin.program.zeroconfbrowse.zip
 mv plugin.program.zeroconfbrowse-master plugin.program.zeroconfbrowse
 killall kodi.bin

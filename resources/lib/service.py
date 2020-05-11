@@ -10,6 +10,8 @@ import threading
 import cPickle as pickle
 import xbmc
 
+import wled # wled.py
+
 global services # FIXME: This means that we will be able to use services from other python files - at least in theory but it doesn't seem to work. Why?
 
 global pickle_file 
@@ -22,7 +24,9 @@ headers = {
     'Connection': 'keep-alive',
 }
 
-target_color = "255" # Blue
+global target_brightness
+global target_color
+target_brightness = "255" # Max
 
 class ZeroconfService():
 
@@ -46,8 +50,8 @@ class ZeroconfService():
         # ESP8266 devices running the WLED sketch - we can e.g., set the color
         if self.service_type == "_wled._tcp":
             try:
-                set_wled_to_blue = '{"seg":{"col":[[0,0,'+target_color+' ,"0"],[],[]]},"transition":7,"v":true}'
-                response = requests.post("http://"+self.address+":"+self.port+"/json/state", headers=headers, data=set_wled_to_blue)
+                data = '{"seg":{"col":[[0,0,'+target_brightness+' ,"0"],[],[]]},"transition":7,"v":true}'
+                response = requests.post("http://"+self.address+":"+self.port+"/json/state", headers=headers, data=data)
                 print(response)
             except:
                 pass
@@ -59,12 +63,12 @@ class ZeroconfService():
             try:
                 params = (
                     ('m', '1'), # Amount of warm white
-                    ('h0', target_color), # Color (256=blue)
-                    ('d0', '100'), # Brightness
-                    ('n0', '100'), # Color intensity
+                    ('h0', '256'), # Color red 1-359 red (256=blue)
+                    ('d0', remap(int(target_brightness), 0, 255, 0, 100)), # Brightness 0-100
+                    ('n0',  '100'), # white only 0-100 full color
                 )
                 response = requests.get("http://"+self.address+":"+self.port, headers=headers, params=params)
-                print(response)
+                print(response.text)
             except:
                 pass
         
@@ -128,6 +132,11 @@ if __name__ == "__main__":
     for service in services:
         service.handle()
 
+# https://www.arduino.cc/en/reference/map
+# https://stackoverflow.com/a/43567380
+def remap(x, in_min, in_max, out_min, out_max):
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+  
 # TODO:
 # Add some actions, e.g.,
 # Scenarios - how can we make those SUPER simple to configure?
@@ -135,11 +144,3 @@ if __name__ == "__main__":
 
 # TODO:
 # Make all lights go dark and possibly shut some devices down when Kodi shuts down
-
-# TODO:
-# Get the real nice names for Tasmota/Sonoff devices from their self-description JSON
-# http://192.168.0.28/cm?cmnd=Status+0
-# has
-# Status.FriendlyName.0
-# and a LOT more information about Tasmota devices
-# The question is whether we should put the Tasmota handling into its own add-on... at which point it becomes "work"...
